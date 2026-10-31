@@ -51,7 +51,7 @@ const $=s=>document.querySelector(s);
 const stage=$('#stage'),dc=$('#draw'),dx=dc.getContext('2d');
 const COLORS=['#ff5fa2','#ffb02e','#2ecc9a','#3ea6ff','#9b6bff'];
 const PROMPTS=['a star','a heart','a fish','a house','a cloud','a lightning bolt','a leaf','a crown','a spiral','a snake','a flower','a rocket'];
-let hasModel=false,strokes=[],parts=[],pts=[],drawing=false,color=COLORS[0],depth=1.2,made=0,norm=[],closed=false,mode='draw',pi=0;
+let hasModel=false,erasing=false,ring=null,strokes=[],parts=[],pts=[],drawing=false,color=COLORS[0],depth=1.2,made=0,norm=[],closed=false,mode='draw',pi=0;
 
 // three.js setup
 const renderer=new THREE.WebGLRenderer({canvas:$('#gl'),antialias:true,alpha:true});
@@ -72,14 +72,15 @@ function paint(){
   const r=stage.getBoundingClientRect();dx.clearRect(0,0,r.width,r.height);
   dx.lineWidth=7;dx.lineCap=dx.lineJoin='round';
   [...strokes,{p:pts,c:color}].forEach(s=>{if(s.p.length<2)return;dx.strokeStyle=s.c;dx.beginPath();dx.moveTo(s.p[0].x,s.p[0].y);s.p.forEach(q=>dx.lineTo(q.x,q.y));dx.stroke()});
+  if(ring){dx.strokeStyle='#999';dx.lineWidth=1.5;dx.beginPath();dx.arc(ring.x,ring.y,22,0,7);dx.stroke()}
 }
 function pos(e){const r=dc.getBoundingClientRect();return{x:e.clientX-r.left,y:e.clientY-r.top}}
-dc.addEventListener('pointerdown',e=>{if(mode!=='draw')return;dc.setPointerCapture(e.pointerId);drawing=true;pts=[pos(e)];$('#hint').style.display='none';paint()});
+dc.addEventListener('pointerdown',e=>{if(mode!=='draw')return;dc.setPointerCapture(e.pointerId);$('#hint').style.display='none';if(erasing){drawing='e';wipeAt(pos(e));return}drawing=true;pts=[pos(e)];paint()});
 dc.addEventListener('pointermove',e=>{
-  if(drawing){const p=pos(e),l=pts[pts.length-1];if(Math.hypot(p.x-l.x,p.y-l.y)>3){pts.push(p);paint()}}
+  if(drawing==='e'){wipeAt(pos(e))}else if(drawing){const p=pos(e),l=pts[pts.length-1];if(Math.hypot(p.x-l.x,p.y-l.y)>3){pts.push(p);paint()}}
   else if(dragging){const dX=e.clientX-lx,dY=e.clientY-ly;lx=e.clientX;ly=e.clientY;vx=dX*.01;group.rotation.y+=dX*.01;group.rotation.x=Math.max(-1.2,Math.min(1.2,group.rotation.x+dY*.01))}
 });
-const up=()=>{if(drawing){if(pts.length>1)strokes.push({p:pts,c:color});pts=[]}drawing=false;dragging=false;paint()};
+const up=()=>{if(drawing===true){if(pts.length>1)strokes.push({p:densify(pts),c:color});pts=[]}drawing=false;dragging=false;ring=null;paint()};
 dc.addEventListener('pointerup',up);dc.addEventListener('pointercancel',up);
 dc.addEventListener('pointerdown',e=>{if(mode==='view'){dragging=true;lx=e.clientX;ly=e.clientY;dc.setPointerCapture(e.pointerId)}});
 
@@ -110,6 +111,10 @@ function buildPart(norm,closed,color){
   }
 }
 function ghost(on){group.children.forEach(c=>{c.material.transparent=on;c.material.opacity=on?.3:1;c.material.needsUpdate=true})}
+function densify(a){const o=[a[0]];for(let i=1;i<a.length;i++){const p=a[i-1],q=a[i],n=Math.ceil(Math.hypot(q.x-p.x,q.y-p.y)/4);for(let k=1;k<=n;k++)o.push({x:p.x+(q.x-p.x)*k/n,y:p.y+(q.y-p.y)*k/n})}return o}
+function wipeAt(p){let hit=false;const out=[];
+  strokes.forEach(s=>{let run=[];s.p.forEach(q=>{if(Math.hypot(q.x-p.x,q.y-p.y)<22){hit=true;if(run.length>1)out.push({p:run,c:s.c});run=[]}else run.push(q)});if(run.length>1)out.push({p:run,c:s.c})});
+  if(hit)strokes=out;ring=p;paint()}
 function wipe(){pts=[];strokes=[];paint();while(group.children.length){const c=group.children.pop();c.geometry&&c.geometry.dispose()}hasModel=false}
 function setMode(m){mode=m;document.body.classList.toggle('v',m==='view');ghost(m==='draw');
   if(m==='view'){group.rotation.set(-.35,0,0);vx=.012}
@@ -129,7 +134,10 @@ $('#next').onclick=()=>{newPrompt();wipe();setMode('draw')};
 $('#depth').oninput=e=>{depth=+e.target.value;build()};
 const sw=$('#sws');
 COLORS.forEach((c,i)=>{const b=document.createElement('button');b.className='sw'+(i?'':' on');b.style.background=c;b.setAttribute('aria-label','Colour '+(i+1));
-  b.onclick=()=>{color=c;sw.querySelectorAll('.sw').forEach(x=>x.classList.remove('on'));b.classList.add('on');paint()};sw.appendChild(b)});
+  b.onclick=()=>{erasing=false;color=c;sw.querySelectorAll('.sw').forEach(x=>x.classList.remove('on'));b.classList.add('on');paint()};sw.appendChild(b)});
+const er=document.createElement('button');er.className='sw';er.textContent='🧽';er.style.cssText='background:var(--panel);font-size:18px';er.setAttribute('aria-label','Eraser');
+er.onclick=()=>{erasing=!erasing;sw.querySelectorAll('.sw').forEach(x=>x.classList.remove('on'));if(erasing){er.classList.add('on');toast('Eraser on: drag over a stroke')}else{sw.querySelector('.sw').classList.add('on');color=COLORS[0]}};
+sw.appendChild(er);
 
 (function loop(){
   requestAnimationFrame(loop);
