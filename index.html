@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Doodle3D</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>✏️</text></svg>">
 <style>
 :root{--bg:#f4f1fa;--panel:#fff;--ink:#241b3a;--mute:#7a6f94;--accent:#7c4dff;--line:#ddd5ee;color-scheme:light;
 box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
@@ -28,8 +29,8 @@ button:active{transform:scale(.97)}
 .sw{flex:none;width:40px;min-height:40px;height:40px;padding:0;border-radius:50%;border:3px solid var(--panel);box-shadow:0 0 0 1px var(--line)}
 .sw.on{box-shadow:0 0 0 3px var(--accent)}
 #view{display:none}
-#depthRow{display:flex;align-items:center;gap:10px;font-size:.85rem;color:var(--mute)}
-#depthRow input{flex:1;accent-color:var(--accent)}
+.srow{display:flex;align-items:center;gap:10px;font-size:.85rem;color:var(--mute)}
+.srow span{width:72px}.srow input{flex:1;accent-color:var(--accent)}
 body.v #view{display:flex}body.v #drawbar{display:none}
 </style>
 </head>
@@ -41,7 +42,8 @@ body.v #view{display:flex}body.v #drawbar{display:none}
 <div id="drawbar"><div class="row" id="sws" style="margin-bottom:10px"></div>
 <div class="row"><button id="clear">Clear</button><button id="redrawNow">Redraw</button><button id="make" class="main">Make it 3D ✨</button></div></div>
 <div id="view"><div style="display:flex;flex-direction:column;gap:10px;width:100%">
-<div id="depthRow">Thickness<input type="range" id="depth" min="0.2" max="3" step="0.05" value="1.2"></div>
+<div class="srow"><span>Thickness</span><input type="range" id="wid" min="0" max="1" step="0.005" value="0.3" aria-label="Stroke thickness"></div>
+<div class="srow"><span>Depth</span><input type="range" id="depth" min="0" max="1" step="0.01" value="0.4" aria-label="3D depth"></div>
 <div class="row"><button id="redraw">Redraw</button><button id="next" class="main">Next prompt →</button></div></div></div>
 </div>
 </div>
@@ -51,7 +53,7 @@ const $=s=>document.querySelector(s);
 const stage=$('#stage'),dc=$('#draw'),dx=dc.getContext('2d');
 const COLORS=['#ff5fa2','#ffb02e','#2ecc9a','#3ea6ff','#9b6bff'];
 const PROMPTS=['a star','a heart','a fish','a house','a cloud','a lightning bolt','a leaf','a crown','a spiral','a snake','a flower','a rocket'];
-let hasModel=false,erasing=false,ring=null,strokes=[],parts=[],pts=[],drawing=false,color=COLORS[0],depth=1.2,made=0,norm=[],closed=false,mode='draw',pi=0;
+let wT=.3,dT=.4,built=null,hasModel=false,erasing=false,ring=null,strokes=[],parts=[],pts=[],drawing=false,color=COLORS[0],depth=1.2,made=0,norm=[],closed=false,mode='draw',pi=0;
 
 // three.js setup
 const renderer=new THREE.WebGLRenderer({canvas:$('#gl'),antialias:true,alpha:true});
@@ -71,7 +73,7 @@ function size(){
 function paint(){
   const r=stage.getBoundingClientRect();dx.clearRect(0,0,r.width,r.height);
   dx.lineWidth=7;dx.lineCap=dx.lineJoin='round';
-  [...strokes,{p:pts,c:color}].forEach(s=>{if(s.p.length<2)return;dx.strokeStyle=s.c;dx.beginPath();dx.moveTo(s.p[0].x,s.p[0].y);s.p.forEach(q=>dx.lineTo(q.x,q.y));dx.stroke()});
+  [...strokes,{p:pts,c:color}].forEach(s=>{if(s.p.length===1){dx.fillStyle=s.c;dx.beginPath();dx.arc(s.p[0].x,s.p[0].y,3.5,0,7);dx.fill();return}if(s.p.length<2)return;dx.strokeStyle=s.c;dx.beginPath();dx.moveTo(s.p[0].x,s.p[0].y);s.p.forEach(q=>dx.lineTo(q.x,q.y));dx.stroke()});
   if(ring){dx.strokeStyle='#999';dx.lineWidth=1.5;dx.beginPath();dx.arc(ring.x,ring.y,22,0,7);dx.stroke()}
 }
 function pos(e){const r=dc.getBoundingClientRect();return{x:e.clientX-r.left,y:e.clientY-r.top}}
@@ -80,40 +82,46 @@ dc.addEventListener('pointermove',e=>{
   if(drawing==='e'){wipeAt(pos(e))}else if(drawing){const p=pos(e),l=pts[pts.length-1];if(Math.hypot(p.x-l.x,p.y-l.y)>3){pts.push(p);paint()}}
   else if(dragging){const dX=e.clientX-lx,dY=e.clientY-ly;lx=e.clientX;ly=e.clientY;vx=dX*.01;group.rotation.y+=dX*.01;group.rotation.x=Math.max(-1.2,Math.min(1.2,group.rotation.x+dY*.01))}
 });
-const up=()=>{if(drawing===true){if(pts.length>1)strokes.push({p:densify(pts),c:color});pts=[]}drawing=false;dragging=false;ring=null;paint()};
+const up=()=>{if(drawing===true){if(pts.length)strokes.push({p:densify(pts),c:color});pts=[]}drawing=false;dragging=false;ring=null;paint()};
 dc.addEventListener('pointerup',up);dc.addEventListener('pointercancel',up);
 dc.addEventListener('pointerdown',e=>{if(mode==='view'){dragging=true;lx=e.clientX;ly=e.clientY;dc.setPointerCapture(e.pointerId)}});
 
 function toast(t){const el=$('#toast');el.textContent=t;el.style.opacity=1;setTimeout(()=>el.style.opacity=0,1600)}
 
+function smooth(P){let a=P;for(let r=0;r<2&&a.length>2;r++){const b=a;a=b.map((p,i)=>i&&i<b.length-1?new THREE.Vector2((b[i-1].x+p.x+b[i+1].x)/3,(b[i-1].y+p.y+b[i+1].y)/3):p)}return a}
 function prepare(){
-  const all=strokes.filter(s=>s.p.length>=10);const xs=all.flatMap(s=>s.p.map(p=>p.x)),ys=all.flatMap(s=>s.p.map(p=>p.y));
+  const all=strokes.filter(t=>t.p.length);
+  const xs=all.flatMap(t=>t.p.map(p=>p.x)),ys=all.flatMap(t=>t.p.map(p=>p.y));
   const x0=Math.min(...xs),x1=Math.max(...xs),y0=Math.min(...ys),y1=Math.max(...ys);
-  const s=4/Math.max(x1-x0,y1-y0,1),cx=(x0+x1)/2,cy=(y0+y1)/2,n=80;
-  parts=all.map(st=>{const P=st.p;let a=[];for(let i=0;i<n;i++){const p=P[Math.floor(i*(P.length-1)/(n-1))];a.push(new THREE.Vector2((p.x-cx)*s,-(p.y-cy)*s))}
-  const closed=a[0].distanceTo(a[n-1])<1.1;
-  if(closed)a.pop();
-  const m=a.length;
-  const norm=a.map((p,i)=>{const q=a[(i+m-1)%m],r=a[(i+1)%m];
-    const lo=closed||(i>0&&i<m-1);return lo?new THREE.Vector2((q.x+p.x+r.x)/3,(q.y+p.y+r.y)/3):p});return{norm,closed,c:st.c}});
+  const k=4/Math.max(x1-x0,y1-y0,40),cx=(x0+x1)/2,cy=(y0+y1)/2;
+  // every stroke stays its own open polyline: nothing is closed or filled
+  built={k,ref:Math.min(stage.clientWidth,stage.clientHeight),str:all.map(t=>({c:t.c,pts:smooth(t.p.map(p=>new THREE.Vector2((p.x-cx)*k,-(p.y-cy)*k)))}))};
 }
-function build(){while(group.children.length){const c=group.children.pop();c.geometry&&c.geometry.dispose()}parts.forEach(p=>buildPart(p.norm,p.closed,p.c))}
-function buildPart(norm,closed,color){
-  const mat=new THREE.MeshStandardMaterial({color,roughness:.35,metalness:.1});
-  if(closed){
-    const g=new THREE.ExtrudeGeometry(new THREE.Shape(norm),{depth,bevelEnabled:true,bevelThickness:.12,bevelSize:.12,bevelSegments:3,curveSegments:1});
-    g.translate(0,0,-depth/2);group.add(new THREE.Mesh(g,mat));
-  }else{
-    const k=norm.length,v=norm.map((p,i)=>new THREE.Vector3(p.x,p.y,Math.sin(i/(k-1)*Math.PI)*depth*.8));
-    const r=.08+depth*.1;
-    group.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(v),160,r,10),mat));
-    [v[0],v[k-1]].forEach(p=>{const s=new THREE.Mesh(new THREE.SphereGeometry(r,12,12),mat);s.position.copy(p);group.add(s)});
+function build(){
+  while(group.children.length){const c=group.children.pop();c.geometry&&c.geometry.dispose();c.material&&c.material.dispose()}
+  if(!built)return;
+  // width and depth are separate, both scale with the stage size so they look the same on any screen
+  const w=(.006+.08*wT*wT)*built.ref*built.k,d=(.004+.12*dT*dT)*built.ref*built.k;
+  const by={};built.str.forEach(t=>{(by[t.c]=by[t.c]||[]).push(t.pts)});
+  const m=new THREE.Matrix4(),q=new THREE.Quaternion(),sc=new THREE.Vector3(),ps=new THREE.Vector3(),z=new THREE.Vector3(0,0,1);
+  for(const c in by){
+    let nd=0;by[c].forEach(P=>nd+=P.length);
+    const mat=new THREE.MeshStandardMaterial({color:c,roughness:.35,metalness:.1});
+    const cg=new THREE.CylinderGeometry(.5,.5,1,16);cg.rotateX(Math.PI/2);
+    const disc=new THREE.InstancedMesh(cg,mat,nd),box=new THREE.InstancedMesh(new THREE.BoxGeometry(1,1,1),mat,nd);
+    let i=0,j=0;
+    by[c].forEach(P=>P.forEach((p,n)=>{
+      q.identity();ps.set(p.x,p.y,0);sc.set(w,w,d);m.compose(ps,q,sc);disc.setMatrixAt(i++,m);
+      if(n){const a=P[n-1],ex=p.x-a.x,ey=p.y-a.y;q.setFromAxisAngle(z,Math.atan2(ey,ex));ps.set((p.x+a.x)/2,(p.y+a.y)/2,0);sc.set(Math.hypot(ex,ey),w,d);m.compose(ps,q,sc);box.setMatrixAt(j++,m)}
+    }));
+    disc.count=i;box.count=j;disc.frustumCulled=box.frustumCulled=false;
+    group.add(disc);if(j)group.add(box);
   }
 }
 function ghost(on){group.children.forEach(c=>{c.material.transparent=on;c.material.opacity=on?.3:1;c.material.needsUpdate=true})}
 function densify(a){const o=[a[0]];for(let i=1;i<a.length;i++){const p=a[i-1],q=a[i],n=Math.ceil(Math.hypot(q.x-p.x,q.y-p.y)/4);for(let k=1;k<=n;k++)o.push({x:p.x+(q.x-p.x)*k/n,y:p.y+(q.y-p.y)*k/n})}return o}
 function wipeAt(p){let hit=false;const out=[];
-  strokes.forEach(s=>{let run=[];s.p.forEach(q=>{if(Math.hypot(q.x-p.x,q.y-p.y)<22){hit=true;if(run.length>1)out.push({p:run,c:s.c});run=[]}else run.push(q)});if(run.length>1)out.push({p:run,c:s.c})});
+  strokes.forEach(s=>{let run=[];s.p.forEach(q=>{if(Math.hypot(q.x-p.x,q.y-p.y)<22){hit=true;if(run.length>1||(run.length===1&&s.p.length===1))out.push({p:run,c:s.c});run=[]}else run.push(q)});if(run.length>1||(run.length===1&&s.p.length===1))out.push({p:run,c:s.c})});
   if(hit)strokes=out;ring=p;paint()}
 function wipe(){pts=[];strokes=[];paint();while(group.children.length){const c=group.children.pop();c.geometry&&c.geometry.dispose()}hasModel=false}
 function setMode(m){mode=m;document.body.classList.toggle('v',m==='view');ghost(m==='draw');
@@ -123,7 +131,7 @@ function newPrompt(){pi=(pi+1+Math.floor(Math.random()*3))%PROMPTS.length;showPr
 function showPrompt(){$('#prompt').innerHTML='Draw '+PROMPTS[pi]+'<small>or anything you like</small>'}
 
 $('#make').onclick=()=>{
-  if(!strokes.some(s=>s.p.length>=10)){toast('Draw a bigger shape first');return}
+  if(!strokes.length){toast('Draw a bigger shape first');return}
   prepare();build();hasModel=true;made++;$('#count').textContent='Made: '+made;
   pts=[];strokes=[];paint();setMode('view');
 };
@@ -131,7 +139,8 @@ $('#clear').onclick=()=>{wipe();setMode('draw')};
 $('#redrawNow').onclick=()=>{strokes.pop();pts=[];paint()};
 $('#redraw').onclick=()=>{pts=[];paint();setMode('draw')};
 $('#next').onclick=()=>{newPrompt();wipe();setMode('draw')};
-$('#depth').oninput=e=>{depth=+e.target.value;build()};
+$('#wid').oninput=e=>{wT=+e.target.value;if(hasModel)build()};
+$('#depth').oninput=e=>{dT=+e.target.value;if(hasModel)build()};
 const sw=$('#sws');
 COLORS.forEach((c,i)=>{const b=document.createElement('button');b.className='sw'+(i?'':' on');b.style.background=c;b.setAttribute('aria-label','Colour '+(i+1));
   b.onclick=()=>{erasing=false;color=c;sw.querySelectorAll('.sw').forEach(x=>x.classList.remove('on'));b.classList.add('on');paint()};sw.appendChild(b)});
